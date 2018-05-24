@@ -2,7 +2,6 @@
 namespace elastic;
 
 use elastic\query\ElasticBulkQuery;
-use elastic\query\IQuery;
 use GuzzleHttp\Client;
 
 class Elastic {
@@ -15,54 +14,38 @@ class Elastic {
         self::$_elasticHost = $host;
     }
 
-    public static function delete(string $uri) {
-        $response = Elastic::client()->delete($uri);
+    /**
+     * 提交查询请求
+     * @param string $method 请求方式【POST GET DELETE PUT等】
+     * @param string $uri
+     * @param mixed $condition 查询条件，字符串或数组
+     * @return string
+     */
+    public static function query(string $method, string $uri, $condition = '') {
+        $condition = is_array($condition) ? ['json' => $condition] : ['body' => $condition];
 
-        return $response->getStatusCode() == HttpCode::OK;
+        return self::body(
+            self::client()->request($method, $uri, $condition)
+        );
     }
 
-    public static function query($method, string $uri, IQuery $query = null) {
-        $client = self::client();
-//        $options = ['headers' => [
-//            'Content-Type' => 'application/json',
-//        ]];
-        if ( ! is_null($query)) {
-            $options['body'] = $query->toJson();
-        }
-
-        return self::body($client->request($method, $uri, $options));
-    }
-
+    /**
+     * 执行一个批量操作
+     * @param string $uri 执行批量操作请求的uri
+     * @param ElasticBulkQuery $query 批量请求查询对象实例
+     * @return string
+     */
     public static function bulk(string $uri, ElasticBulkQuery $query) {
-        return self::query('POST', rtrim($uri, '/') . '/_bulk', $query);
+        return self::query('POST', rtrim($uri, '/') . '/_bulk', $query->toJson());
     }
 
     public function reindex(string $index) { // todo reindex
     }
 
-    /**
-     * 创建索引
-     * @param string $index 索引名
-     * @param array $schema 数据类型定义
-     * @return bool
-     */
-    public function addIndex(string $index, array $schema = []) {
-        $mappings = [];
-        if ( ! empty($schema)) {
-            foreach ($schema as $type => $property) {
-                $mappings[$type] = [
-                    'properties' => $property
-                ];
-            }
-        }
+    public static function delete(string $uri) {
+        $response = Elastic::client()->delete($uri);
 
-        $response = self::client()->request(
-            'PUT',
-            $index,
-            ['json' => ['mappings' => $mappings]]
-        );
-
-        return $this->ret($response);
+        return $response->getStatusCode() == HttpCode::OK;
     }
 
     /**
@@ -73,14 +56,10 @@ class Elastic {
      * @return bool
      */
     public function aliases(array $removeAlias, array $addAlias) {
-        $response = self::client()->request('POST', '_aliases', [
-            'json' => [
-                ['remove' => $removeAlias],
-                ['add' => $addAlias],
-            ]
+        return self::query('POST', '_aliases', [
+            ['remove' => $removeAlias],
+            ['add' => $addAlias],
         ]);
-
-        return $this->ret($response);
     }
 
     /**
@@ -92,22 +71,6 @@ class Elastic {
         $response = self::client()->head($index);
 
         return $response->getStatusCode() != '404';
-    }
-
-    /**
-     * 获取所有索引
-     * @return string
-     * @throws ElasticException
-     */
-    public static function all() {
-        $response = self::client()->get('_cat/indices?v');
-
-        if ($response->getStatusCode() != HttpCode::OK) {
-            throw new ElasticException(
-                'status code:' . $response->getStatusCode() . ', message: ' . $response->getBody());
-        }
-
-        return  $response->getBody();
     }
 
     public static function client()
